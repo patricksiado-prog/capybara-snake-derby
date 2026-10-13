@@ -1,0 +1,658 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, user-scalable=no">
+<meta name="theme-color" content="#123430">
+<title>Capybara Snake Derby</title>
+<!--
+CAPYBARA SNAKE DERBY - built with the game-dev skill (2026-10-12).
+PITCH:     You are a capybara racing three snakes down a 4-lane track through five biomes.
+CORE VERB: switch lanes + jump (swipe left/right/up, or tap left / middle / right).
+LOOP:      dodge -> grab oranges for a speed burst -> pass snakes -> finish 1st or 2nd to unlock the next biome.
+PLATFORM:  Android phone browser first (portrait, touch), keyboard on desktop.  SESSION: 30-45 s per race.
+DONE MEANS: plays from a link, 0 console errors under proof.py, a good player can win every biome, progress saves.
+ASSETS:    none - every sprite is drawn with canvas shapes, every sound is a WebAudio tone. No licences needed.
+-->
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Bowlby+One&family=Fredoka:wght@400;600&display=swap">
+<style>
+/* Layout: one 9:16 game board centred on river-teal ground; HTML menus float over the canvas. */
+:root {
+  --bg: #123430; --panel: rgba(12, 34, 30, .84); --cream: #fff3dc; --muted: #bcd2bf;
+  --capy: #9a6a3f; --orange: #ff8a1e; --moss: #7fc46a; --lock: #5d746a;
+  --gold: #ffcf3f; --silver: #d9e2e6; --bronze: #d48a4f;
+  --display: 'Bowlby One', 'Arial Black', Impact, sans-serif;
+  --body: 'Fredoka', 'Trebuchet MS', system-ui, sans-serif;
+  color-scheme: dark;
+}
+html, body { height: 100%; }
+[hidden] { display: none !important; }
+body {
+  background: var(--bg); color: var(--cream); font-family: var(--body); font-size: 15px;
+  padding-inline: 16px; padding-block: 0; display: flex; align-items: center; justify-content: center;
+  overflow: hidden; touch-action: none; user-select: none; -webkit-user-select: none;
+  -webkit-tap-highlight-color: transparent;
+}
+#wrap { position: relative; touch-action: none; }
+canvas { display: block; width: 100%; height: 100%; border-radius: 14px; }
+.ov {
+  position: absolute; inset: 0; display: flex; flex-direction: column; align-items: center;
+  gap: 12px; padding: 20px 16px; overflow-y: auto; text-align: center; border-radius: 14px;
+}
+#menu { background: linear-gradient(to bottom, rgba(12,34,30,.92) 0%, rgba(12,34,30,.62) 46%, rgba(12,34,30,.94) 100%); }
+#results { background: var(--panel); justify-content: center; }
+h1 { font-family: var(--display); font-weight: 400; font-size: clamp(30px, 9.5vmin, 46px); line-height: .95;
+  margin: 6px 0 0; color: var(--cream); text-wrap: balance; letter-spacing: .5px;
+  text-shadow: 0 3px 0 #6e4628, 0 6px 14px rgba(0,0,0,.4); }
+h1 .vs { display: block; font-size: .42em; color: var(--orange); letter-spacing: 3px; margin: 4px 0; text-shadow: none; }
+.tag { margin: 0; color: var(--muted); max-width: 30ch; }
+.grid { display: flex; flex-direction: column; gap: 8px; width: 100%; max-width: 330px; }
+.biome {
+  display: grid; grid-template-columns: 40px 1fr auto; align-items: center; gap: 10px; text-align: left;
+  width: 100%; padding: 9px 12px; border-radius: 12px; border: 2px solid transparent;
+  background: rgba(255,243,220,.08); color: var(--cream); font: inherit; cursor: pointer;
+}
+.biome:focus-visible, .btn:focus-visible, #quit:focus-visible, #snd:focus-visible { outline: 3px solid var(--orange); outline-offset: 2px; }
+.biome.on { border-color: var(--orange); background: rgba(255,138,30,.14); }
+.biome[disabled] { cursor: default; color: var(--lock); background: rgba(255,243,220,.04); }
+.biome .sw { width: 40px; height: 40px; border-radius: 10px; }
+.biome b { display: block; font-family: var(--display); font-weight: 400; font-size: 15px; letter-spacing: .3px; }
+.biome small { display: block; font-size: 12px; color: var(--muted); }
+.biome[disabled] small { color: var(--lock); }
+.medal { font-family: var(--display); font-size: 12px; padding: 3px 8px; border-radius: 99px; color: #2a1a0e; white-space: nowrap; }
+.m1 { background: var(--gold); } .m2 { background: var(--silver); } .m3 { background: var(--bronze); }
+.m4 { background: rgba(255,243,220,.2); color: var(--cream); }
+.how { font-size: 13px; color: var(--muted); max-width: 32ch; line-height: 1.45; margin: 0; }
+.how kbd { font-family: var(--body); font-weight: 600; color: var(--cream); }
+.row { display: flex; gap: 10px; flex-wrap: wrap; justify-content: center; }
+.btn {
+  font-family: var(--display); font-size: 16px; letter-spacing: .5px; padding: 11px 20px; border-radius: 12px;
+  border: 0; cursor: pointer; background: var(--orange); color: #2a1a0e; box-shadow: 0 4px 0 #b4560a;
+}
+.btn.ghost { background: rgba(255,243,220,.12); color: var(--cream); box-shadow: none; }
+.btn:active { transform: translateY(2px); box-shadow: 0 2px 0 #b4560a; }
+#snd { position: absolute; top: 10px; right: 10px; background: rgba(255,243,220,.12); color: var(--cream);
+  border: 0; border-radius: 99px; padding: 6px 12px; font: 600 12px var(--body); cursor: pointer; }
+#quit { position: absolute; top: 8px; right: 8px; width: 34px; height: 34px; border-radius: 99px; border: 0;
+  background: rgba(0,0,0,.28); color: var(--cream); font: 600 16px var(--body); cursor: pointer; }
+.place { font-family: var(--display); font-size: 64px; line-height: 1; margin: 0; }
+.p1 { color: var(--gold); } .p2 { color: var(--silver); } .p3 { color: var(--bronze); } .p4 { color: var(--muted); }
+.stats { display: flex; gap: 18px; font-variant-numeric: tabular-nums; color: var(--muted); }
+.stats b { display: block; font-family: var(--display); font-weight: 400; font-size: 20px; color: var(--cream); }
+.order { list-style: none; margin: 0; padding: 0; width: 100%; max-width: 260px; display: flex; flex-direction: column; gap: 4px; }
+.order li { display: flex; justify-content: space-between; padding: 6px 12px; border-radius: 10px;
+  background: rgba(255,243,220,.07); font-variant-numeric: tabular-nums; }
+.order li.me { background: rgba(255,138,30,.2); font-weight: 600; }
+.note { margin: 0; color: var(--cream); max-width: 30ch; }
+</style>
+
+<div id="wrap">
+  <canvas id="c" width="360" height="640"></canvas>
+  <button id="quit" type="button" aria-label="Back to biomes" hidden>✕</button>
+  <div id="menu" class="ov">
+    <button id="snd" type="button">Sound on</button>
+    <h1>Capybara<span class="vs">versus</span>Snake Derby</h1>
+    <p class="tag">Five biomes. Three snakes. One very calm capybara.</p>
+    <div id="biomes" class="grid"></div>
+    <p class="how">Swipe <kbd>left</kbd> or <kbd>right</kbd> to switch lanes. Swipe <kbd>up</kbd> or tap the middle to jump logs and lava. Grab oranges for a speed burst. Finish 1st or 2nd to open the next biome.</p>
+  </div>
+  <div id="results" class="ov" hidden></div>
+</div>
+
+<script>
+(() => {
+'use strict';
+const W = 360, H = 640, LANES = 4, LW = 70, TX = 40, TW = LW * LANES, PY = Math.round(H * 0.74), BASE = 300;
+const laneX = l => TX + LW * (l + 0.5);
+const cv = document.getElementById('c'), g = cv.getContext('2d'), wrap = document.getElementById('wrap');
+const menuEl = document.getElementById('menu'), resEl = document.getElementById('results');
+const quitEl = document.getElementById('quit'), sndEl = document.getElementById('snd'), listEl = document.getElementById('biomes');
+const reduceMotion = matchMedia('(prefers-reduced-motion: reduce)').matches;
+
+// ---------- layout: fit a 9:16 board inside the body, crisp on high-DPI phones
+function fit() {
+  const aw = Math.max(200, document.body.clientWidth - 32), ah = Math.max(300, document.body.clientHeight);
+  let w = aw, h = w * 16 / 9;
+  if (h > ah) { h = ah; w = h * 9 / 16; }
+  wrap.style.width = w + 'px'; wrap.style.height = h + 'px';
+  const dpr = Math.min(3, window.devicePixelRatio || 1);
+  cv.width = Math.round(w * dpr); cv.height = Math.round(h * dpr);
+  g.setTransform(cv.width / W, 0, 0, cv.height / H, 0, 0);
+}
+addEventListener('resize', fit); fit();
+
+// ---------- save (per-viewer convenience; game works without it)
+const save = { unlocked: 1, best: {}, sound: true };
+try { Object.assign(save, JSON.parse(localStorage.getItem('capyderby') || '{}')); } catch (e) {}
+function persist() { try { localStorage.setItem('capyderby', JSON.stringify(save)); } catch (e) {} }
+
+// ---------- sound: generated tones, started after the first touch
+let ac = null;
+function tone(f, d = 0.1, type = 'square', vol = 0.05, slide = 0) {
+  if (!save.sound || (race && race.demo)) return;
+  try {
+    ac = ac || new (window.AudioContext || window.webkitAudioContext)();
+    if (ac.state === 'suspended') ac.resume();
+    const o = ac.createOscillator(), v = ac.createGain(), t = ac.currentTime;
+    o.type = type; o.frequency.setValueAtTime(f, t);
+    if (slide) o.frequency.exponentialRampToValueAtTime(Math.max(40, f + slide), t + d);
+    v.gain.setValueAtTime(vol, t); v.gain.exponentialRampToValueAtTime(0.0001, t + d);
+    o.connect(v).connect(ac.destination); o.start(t); o.stop(t + d + 0.02);
+  } catch (e) {}
+}
+const later = (ms, fn) => setTimeout(fn, ms);
+const sfx = {
+  jump: () => tone(360, 0.2, 'triangle', 0.06, 340),
+  orange: () => { tone(880, 0.07, 'square', 0.035); later(60, () => tone(1320, 0.09, 'square', 0.035)); },
+  hit: () => tone(170, 0.32, 'sawtooth', 0.07, -110),
+  bonk: () => tone(250, 0.12, 'square', 0.05, -90),
+  slide: () => tone(700, 0.25, 'sine', 0.04, 500),
+  count: () => tone(523, 0.16, 'square', 0.05),
+  go: () => tone(1046, 0.4, 'square', 0.05),
+  win: () => [523, 659, 784, 1046].forEach((f, i) => later(i * 120, () => tone(f, 0.24, 'triangle', 0.06))),
+  lose: () => [392, 330, 262].forEach((f, i) => later(i * 160, () => tone(f, 0.26, 'triangle', 0.05))),
+};
+
+// ---------- the five biomes
+const BIOMES = [
+  { name: 'Jungle Creek', sub: 'Logs, mud and a lot of leaves', len: 9000, rival: 0.92, gap: [205, 285], dbl: 0.25,
+    ground: '#4f8a3c', tex: '#5d9a47', line: 'rgba(255,255,230,.2)', side: '#24502c', edge: '#3a2a18', deco: 'tree', amb: 'leaf',
+    obs: [['low', 'log'], ['low', 'log'], ['tall', 'rock'], ['slow', 'mud']] },
+  { name: 'Dune Sea', sub: 'Cactus country. Mind the tumbleweeds', len: 10000, rival: 0.97, gap: [195, 265], dbl: 0.3,
+    ground: '#e2b874', tex: '#d4a660', line: 'rgba(120,70,20,.22)', side: '#c4914b', edge: '#a8743a', deco: 'cactus', amb: 'sand',
+    obs: [['tall', 'cactus'], ['tall', 'cactus'], ['low', 'tumble'], ['slow', 'sand']] },
+  { name: 'Frost Tundra', sub: 'Ice is fast. Snowmen are not', len: 11000, rival: 1.01, gap: [190, 255], dbl: 0.35,
+    ground: '#dfeaf2', tex: '#c9d9e6', line: 'rgba(60,100,140,.22)', side: '#93adc2', edge: '#6f8ea6', deco: 'pine', amb: 'snow',
+    obs: [['tall', 'snowman'], ['low', 'drift'], ['low', 'drift'], ['boost', 'ice']] },
+  { name: 'Bayou Swamp', sub: 'Crocodiles drift between lanes', len: 12000, rival: 1.05, gap: [185, 250], dbl: 0.35,
+    ground: '#56653b', tex: '#4a5833', line: 'rgba(230,255,200,.15)', side: '#2b3a26', edge: '#1d2a1b', deco: 'cypress', amb: 'firefly',
+    obs: [['tall', 'croc'], ['low', 'lily'], ['low', 'lily'], ['slow', 'water']] },
+  { name: 'Ember Peaks', sub: 'Jump the lava. Dodge the boulders', len: 13000, rival: 1.09, gap: [180, 245], dbl: 0.4,
+    ground: '#4a3a36', tex: '#3e302c', line: 'rgba(255,150,90,.2)', side: '#231816', edge: '#ff5a1f', deco: 'basalt', amb: 'ember',
+    obs: [['low', 'lava'], ['low', 'lava'], ['tall', 'boulder'], ['slow', 'ash']] },
+];
+const SIZE = { log: [60, 20], rock: [44, 38], mud: [62, 70], cactus: [34, 44], tumble: [30, 30], sand: [62, 70],
+  snowman: [36, 40], drift: [60, 22], ice: [62, 100], croc: [34, 64], lily: [60, 22], water: [62, 72],
+  lava: [62, 24], boulder: [46, 44], ash: [62, 70], orange: [22, 22] };
+const MOVER = { tumble: 80, croc: 36 };
+const SNAKES = [
+  { name: 'Hiss', col: '#5fbf3a', band: '#e8e05a' },
+  { name: 'Noodle', col: '#f2c230', band: '#3a2a10' },
+  { name: 'Fang', col: '#8a4fd6', band: '#ff9ad5' },
+];
+
+// ---------- helpers
+const rand = (a, b) => a + Math.random() * (b - a);
+const pick = a => a[Math.floor(Math.random() * a.length)];
+const hash = n => { const x = Math.sin(n * 127.1 + 311.7) * 43758.5453; return x - Math.floor(x); };
+const TAU = Math.PI * 2;
+function ell(x, y, rx, ry, c) { g.fillStyle = c; g.beginPath(); g.ellipse(x, y, rx, ry, 0, 0, TAU); g.fill(); }
+function circ(x, y, r, c) { ell(x, y, r, r, c); }
+function rr(x, y, w, h, r, c) { g.fillStyle = c; g.beginPath(); g.roundRect(x, y, w, h, r); g.fill(); }
+const ord = n => n + (['th', 'st', 'nd', 'rd'][n] || 'th');
+const fmt = t => { const m = Math.floor(t / 60), s = t - m * 60; return m + ':' + (s < 10 ? '0' : '') + s.toFixed(1); };
+
+// ---------- race setup
+let race = null, screen = 'menu', menuBiome = 0;
+function genTrack(B) {
+  const objs = []; let d = 700;
+  while (d < B.len - 260) {
+    const lanes = [0, 1, 2, 3].sort(() => Math.random() - 0.5).slice(0, Math.random() < B.dbl ? 2 : 1);
+    for (const l of lanes) {
+      const [k, type] = pick(B.obs), [w, h] = SIZE[type];
+      objs.push({ k, type, x: laneX(l), d: d + rand(0, 30), w, h, hitBy: 0, gone: false,
+        vx: MOVER[type] ? (Math.random() < 0.5 ? -1 : 1) * MOVER[type] : 0 });
+    }
+    if (Math.random() < 0.5) {
+      const l = pick([0, 1, 2, 3].filter(x => !lanes.includes(x)));
+      for (let i = 0; i < 3; i++) objs.push({ k: 'orange', type: 'orange', x: laneX(l), d: d + 70 + i * 42, w: 22, h: 22, hitBy: 0, gone: false, vx: 0 });
+    }
+    d += rand(B.gap[0], B.gap[1]);
+  }
+  return objs.sort((a, b) => a.d - b.d);
+}
+function newRace(bi, demo) {
+  const B = BIOMES[bi], skills = [0.97, 1.0, 1.03].sort(() => Math.random() - 0.5);
+  return {
+    B, bi, demo, auto: demo, L: () => B.len, t: demo ? 0 : -3, lastCount: 4, objs: genTrack(B), oranges: 0, shake: 0, endT: 0, parts: [], amb: [],
+    p: { lane: 1, x: laneX(1), d: 0, v: demo ? BASE : 0, jumpT: 0, stumT: 0, boostT: 0, slideT: 0, slowT: 0, bonkT: 0, run: 0, fin: null, think: 0 },
+    rivals: SNAKES.map((s, i) => ({ ...s, lane: [0, 2, 3][i], x: laneX([0, 2, 3][i]), d: demo ? rand(-80, 80) : 0, v: demo ? BASE : 0,
+      skill: skills[i], ph: rand(0, 6), stumT: 0, slowT: 0, burstT: 0, think: 0, fin: null, bit: 1 << i })),
+  };
+}
+
+// ---------- input
+function move(dir) {
+  const p = race.p; if (race.t < 0 || p.fin != null) return;
+  const n = Math.max(0, Math.min(LANES - 1, p.lane + dir));
+  if (n !== p.lane) { p.lane = n; tone(330, 0.04, 'triangle', 0.035); }
+}
+function jump() {
+  const p = race.p; if (race.t < 0 || p.fin != null || p.jumpT > 0) return;
+  p.jumpT = 0.62; sfx.jump();
+}
+let ptr = null;
+wrap.addEventListener('pointerdown', e => { ptr = { x: e.clientX, y: e.clientY, done: false }; tone(1, 0.001, 'sine', 0.0001); });
+wrap.addEventListener('pointermove', e => {
+  if (!ptr || ptr.done || screen !== 'race') return;
+  const dx = e.clientX - ptr.x, dy = e.clientY - ptr.y, th = Math.max(22, wrap.clientWidth * 0.06);
+  if (Math.abs(dx) > th && Math.abs(dx) > Math.abs(dy)) { move(dx > 0 ? 1 : -1); ptr.done = true; }
+  else if (dy < -th) { jump(); ptr.done = true; }
+});
+wrap.addEventListener('pointerup', e => {
+  const p0 = ptr; ptr = null;
+  if (!p0 || p0.done || screen !== 'race' || e.target === quitEl) return;
+  const r = wrap.getBoundingClientRect(), fx = (e.clientX - r.left) / r.width;
+  if (fx < 0.36) move(-1); else if (fx > 0.64) move(1); else jump();
+});
+addEventListener('keydown', e => {
+  const k = e.key;
+  if (screen === 'race') {
+    if (k === 'ArrowLeft' || k === 'a') move(-1);
+    else if (k === 'ArrowRight' || k === 'd') move(1);
+    else if (k === 'ArrowUp' || k === 'w' || k === ' ') { jump(); e.preventDefault(); }
+    else if (k === 'Escape') showMenu();
+  } else if (screen === 'menu' && (k === ' ' || k === 'Enter')) { e.preventDefault(); startRace(menuBiome); }
+  else if (screen === 'results' && (k === ' ' || k === 'Enter')) { e.preventDefault(); startRace(race.bi); }
+  else if (screen === 'results' && k === 'Escape') showMenu();
+});
+document.addEventListener('visibilitychange', () => { last = performance.now(); });
+
+// ---------- autopilot (menu demo race; also used to test that every biome is winnable)
+function danger(l, d0, withOranges) {
+  let s = 0; const lx = laneX(l);
+  for (const o of race.objs) {
+    const dd = o.d - d0; if (dd < -25) continue; if (dd > 260) break;
+    if (o.gone || Math.abs(o.x + o.vx * dd / BASE - lx) > 44) continue;
+    if (o.k === 'orange') s -= withOranges ? 2 : 0;
+    else if (o.k === 'boost') s -= 1;
+    else if (o.k === 'tall') s += 10 * (1.1 - dd / 300);
+    else if (o.k === 'low') s += 3;
+    else if (o.k === 'slow') s += 3;
+  }
+  return s;
+}
+function autopilot(dt) {
+  const p = race.p; p.think -= dt; if (p.think > 0 || p.fin != null) return;
+  const sloppy = window.__sloppy && !race.demo; // test hook: a slower, orange-blind player
+  p.think = sloppy ? 0.28 : 0.1;
+  let best = p.lane, bs = danger(p.lane, p.d, !sloppy) - 0.6;
+  for (const l of [p.lane - 1, p.lane + 1]) if (l >= 0 && l < LANES) { const s = danger(l, p.d, !sloppy); if (s < bs) { bs = s; best = l; } }
+  if (best !== p.lane) move(best - p.lane);
+  for (const o of race.objs) {
+    const dd = o.d - p.d; if (dd < 20) continue; if (dd > 75) break;
+    if (!o.gone && (o.k === 'low' || o.k === 'slow') && Math.abs(o.x - p.x) < o.w / 2 + 12) { jump(); break; }
+  }
+}
+
+// ---------- simulation (dt-based: same speed at 60 Hz or 120 Hz)
+function stumble(p, long) { if (p.stumT > 0) return; p.stumT = long ? 1.0 : 0.75; p.boostT = 0; race.shake = 0.7; sfx.hit(); burst(p.x, PY - 10, '#fff3dc', 10); }
+function update(dt) {
+  const r = race, B = r.B, p = r.p;
+  r.t += dt; r.shake = Math.max(0, r.shake - dt * 1.8);
+  for (const o of r.objs) if (o.vx) { o.x += o.vx * dt; if (o.x < TX + 18 || o.x > TX + TW - 18) { o.vx *= -1; o.x = Math.max(TX + 18, Math.min(TX + TW - 18, o.x)); } }
+  ambient(dt); updateParts(dt);
+  if (r.t < 0) {
+    const c = Math.ceil(-r.t); if (c < r.lastCount) { r.lastCount = c; sfx.count(); } return;
+  }
+  if (r.lastCount > 0 && !r.demo) { r.lastCount = 0; sfx.go(); }
+  if (r.auto) autopilot(dt);
+
+  // capybara
+  let target = BASE;
+  if (p.fin != null) target = BASE * 0.45;
+  else {
+    if (p.boostT > 0) target *= 1.38;
+    if (p.slideT > 0) target *= 1.18;
+    if (p.slowT > 0) target *= 0.6;
+    if (p.stumT > 0) target *= 0.35;
+  }
+  p.v += (target - p.v) * Math.min(1, dt * (p.stumT > 0 ? 8 : 2.2));
+  for (const k of ['jumpT', 'stumT', 'boostT', 'slideT', 'slowT', 'bonkT']) p[k] = Math.max(0, p[k] - dt);
+  p.d += p.v * dt; p.run += p.v * dt / 14;
+  p.x += (laneX(p.lane) - p.x) * Math.min(1, dt * 16);
+  if (Math.random() < dt * p.v / 40) r.parts.push({ x: p.x + rand(-8, 8), y: PY + 22, vx: rand(-20, 20), vy: 0, life: 0.5, max: 0.5, c: 'rgba(255,255,255,.35)', s: rand(2, 4), world: true });
+
+  for (const o of r.objs) {
+    const dd = o.d - p.d; if (dd < -70) continue; if (dd > 70) break;
+    if (o.gone || Math.abs(p.x - o.x) > o.w / 2 + 12 || Math.abs(dd) > o.h / 2 + 14) continue;
+    if (o.k === 'orange') { o.gone = true; p.boostT = 1.6; r.oranges++; sfx.orange(); ring(o.x, PY - dd); }
+    else if (o.k === 'boost') { if (p.slideT < 0.5) sfx.slide(); p.slideT = 0.9; }
+    else if (o.k === 'slow') { if (p.jumpT <= 0) p.slowT = 0.15; }
+    else if (o.k === 'low') { if (p.jumpT <= 0 && !(o.hitBy & 8)) { o.hitBy |= 8; stumble(p, o.type === 'lava'); } }
+    else if (o.k === 'tall') { if (!(o.hitBy & 8)) { o.hitBy |= 8; stumble(p, false); } }
+  }
+
+  // snakes
+  for (const rv of r.rivals) {
+    let tv = BASE * B.rival * rv.skill;
+    const gap = rv.d - p.d;
+    if (p.fin == null) { if (gap > 450) tv *= 0.93; else if (gap < -450) tv *= 1.08; }
+    if (rv.burstT > 0) tv *= 1.22; else if (Math.random() < dt * 0.07) rv.burstT = 1.3;
+    if (rv.slowT > 0) tv *= 0.65;
+    if (rv.stumT > 0) tv *= 0.4;
+    for (const k of ['burstT', 'slowT', 'stumT']) rv[k] = Math.max(0, rv[k] - dt);
+    rv.v += (tv - rv.v) * Math.min(1, dt * 2);
+    rv.d += rv.v * dt; rv.ph += rv.v * dt / 28;
+    rv.x += (laneX(rv.lane) - rv.x) * Math.min(1, dt * 7);
+    if (rv.fin == null && rv.d >= r.L()) rv.fin = r.t;
+    rv.think -= dt;
+    if (rv.think <= 0) {
+      rv.think = 0.15;
+      const here = danger(rv.lane, rv.d, false);
+      if (here > 0 && Math.random() < 0.55 + 0.3 * rv.skill) {
+        let best = rv.lane, bs = here;
+        for (const l of [rv.lane - 1, rv.lane + 1]) if (l >= 0 && l < LANES) { const s = danger(l, rv.d, false); if (s < bs) { bs = s; best = l; } }
+        rv.lane = best;
+      }
+    }
+    for (const o of r.objs) {
+      const dd = o.d - rv.d; if (dd < -60) continue; if (dd > 60) break;
+      if (o.gone || o.hitBy & rv.bit || Math.abs(rv.x - o.x) > o.w / 2 + 8 || Math.abs(dd) > o.h / 2 + 10) continue;
+      if (o.k === 'slow') { rv.slowT = 0.15; continue; }
+      o.hitBy |= rv.bit;
+      if (o.k === 'tall' || (o.k === 'low' && Math.random() < 0.45)) rv.stumT = 0.8;
+    }
+    if (p.fin == null && p.bonkT <= 0 && p.jumpT <= 0 && Math.abs(rv.x - p.x) < 28 && Math.abs(gap) < 34) {
+      p.bonkT = 0.7; p.v *= 0.82; rv.v *= 0.85; r.shake = Math.max(r.shake, 0.35); sfx.bonk(); burst(p.x, PY - 20, rv.col, 6);
+    }
+  }
+
+  if (p.fin == null && p.d >= r.L()) {
+    p.fin = r.t;
+    const place = 1 + r.rivals.filter(rv => rv.fin != null && rv.fin < p.fin).length;
+    r.place = place;
+    if (!r.demo) { place <= 2 ? sfx.win() : sfx.lose(); for (let i = 0; i < 24; i++) burst(rand(TX, TX + TW), PY - 120, pick(['#ffcf3f', '#ff8a1e', '#fff3dc', '#7fc46a']), 1); }
+  }
+  if (p.fin != null) { r.endT += dt; if (r.endT > (r.demo ? 1 : 2.2)) finishRace(); }
+}
+
+// ---------- particles
+function burst(x, y, c, n) { for (let i = 0; i < n; i++) race.parts.push({ x, y, vx: rand(-140, 140), vy: rand(-180, 40), life: 0.7, max: 0.7, c, s: rand(2, 4.5), grav: 380 }); }
+function ring(x, y) { race.parts.push({ x, y, ring: true, life: 0.4, max: 0.4, c: '#ffcf3f' }); }
+function updateParts(dt) {
+  const v = race.p.v;
+  for (const q of race.parts) {
+    q.life -= dt; if (q.ring) continue;
+    q.x += q.vx * dt; q.y += (q.vy + (q.world ? v : 0)) * dt;
+    if (q.grav) q.vy += q.grav * dt;
+  }
+  race.parts = race.parts.filter(q => q.life > 0);
+}
+function ambient(dt) {
+  const a = race.B.amb, v = race.p.v, rate = { leaf: 5, sand: 14, snow: 26, firefly: 3, ember: 10 }[a];
+  if (Math.random() < dt * rate) {
+    const q = { type: a, life: 6, t: rand(0, 6) };
+    if (a === 'leaf') Object.assign(q, { x: rand(0, W), y: -10, vx: rand(-20, 20), vy: rand(40, 70), c: pick(['#8cc152', '#5d9c3a', '#c3d36a']), s: rand(3, 6) });
+    if (a === 'sand') Object.assign(q, { x: -20, y: rand(0, H), vx: rand(220, 340), vy: rand(-10, 10), c: 'rgba(255,240,200,.45)', s: rand(8, 20) });
+    if (a === 'snow') Object.assign(q, { x: rand(0, W), y: -6, vx: rand(-15, 15), vy: rand(40, 80), c: '#ffffff', s: rand(1.5, 3.2) });
+    if (a === 'firefly') Object.assign(q, { x: rand(0, W), y: rand(0, H), vx: rand(-12, 12), vy: rand(-12, 12), c: '#e6ff7a', s: rand(1.5, 2.5) });
+    if (a === 'ember') Object.assign(q, { x: rand(0, W), y: H + 6, vx: rand(-15, 15), vy: rand(-90, -50), c: pick(['#ff8a1e', '#ff5a1f', '#ffcf3f']), s: rand(1.5, 3) });
+    race.amb.push(q);
+  }
+  for (const q of race.amb) {
+    q.t += dt; q.life -= dt;
+    const scroll = q.type === 'sand' || q.type === 'ember' ? 0.15 : 0.45;
+    q.x += (q.vx + Math.sin(q.t * 2) * 12) * dt; q.y += (q.vy + v * scroll) * dt;
+  }
+  race.amb = race.amb.filter(q => q.life > 0 && q.y < H + 20 && q.x < W + 30 && q.y > -30);
+}
+
+// ---------- drawing: world
+function drawCapy(x, y, run, jumpT, stumT, boost, slide) {
+  const jh = jumpT > 0 ? Math.sin((1 - jumpT / 0.62) * Math.PI) * 26 : 0;
+  ell(x, y + 8, 18 - jh * 0.2, 10 - jh * 0.12, 'rgba(0,0,0,.28)');
+  g.save(); g.translate(x, y - jh); const s = 1 + jh / 70; g.scale(s, s);
+  if (stumT > 0) g.rotate(Math.sin(stumT * 28) * 0.28);
+  if (slide) g.rotate(Math.sin(run * 0.5) * 0.08);
+  const a = jh > 0 ? 3 : Math.sin(run) * 4;
+  ell(-14, -9 + a, 5, 7, '#5e3b20'); ell(14, -9 - a, 5, 7, '#5e3b20');
+  ell(-14, 17 - a, 5, 7, '#5e3b20'); ell(14, 17 + a, 5, 7, '#5e3b20');
+  ell(0, 4, 17, 24, '#9a6a3f'); ell(0, 8, 11, 15, '#a9794b');
+  ell(0, -19, 13, 13, '#8d5f37');
+  rr(-9, -38, 18, 14, 6, '#6e4628');
+  circ(-4, -34, 1.6, '#2a1a0e'); circ(4, -34, 1.6, '#2a1a0e');
+  circ(-10, -26, 3.6, '#6e4628'); circ(10, -26, 3.6, '#6e4628');
+  circ(-7, -22, 2.2, '#1a1008'); circ(7, -22, 2.2, '#1a1008');
+  if (boost) { circ(0, -14, 7, '#ff8a1e'); circ(-2, -16, 2, 'rgba(255,255,255,.5)'); ell(3, -21, 3.4, 1.7, '#4caf50'); }
+  if (stumT > 0) for (let i = 0; i < 3; i++) { const an = stumT * 9 + i * 2.1; circ(Math.cos(an) * 16, -44 + Math.sin(an) * 5, 2.6, '#ffcf3f'); }
+  g.restore();
+}
+function drawSnake(rv, y) {
+  const x = rv.x, ph = rv.ph, N = 14;
+  for (let i = N; i >= 0; i--) {
+    const sx = x + Math.sin(ph - i * 0.55) * (3 + i * 0.45), sy = y + i * 6.5;
+    circ(sx + 2, sy + 4, 9.5 - i * 0.45, 'rgba(0,0,0,.16)');
+  }
+  for (let i = N; i >= 0; i--) {
+    const sx = x + Math.sin(ph - i * 0.55) * (3 + i * 0.45), sy = y + i * 6.5;
+    circ(sx, sy, 9.5 - i * 0.45, i % 3 === 1 ? rv.band : rv.col);
+  }
+  const hx = x + Math.sin(ph) * 3;
+  if (Math.sin(ph * 0.9) > 0.55) { g.strokeStyle = '#e0244a'; g.lineWidth = 1.6; g.beginPath(); g.moveTo(hx, y - 16); g.lineTo(hx, y - 23); g.lineTo(hx - 3, y - 27); g.moveTo(hx, y - 23); g.lineTo(hx + 3, y - 27); g.stroke(); }
+  ell(hx, y - 6, 9, 11, rv.col);
+  circ(hx - 4.5, y - 10, 2.6, '#fff'); circ(hx + 4.5, y - 10, 2.6, '#fff');
+  circ(hx - 4.5, y - 10.5, 1.4, '#111'); circ(hx + 4.5, y - 10.5, 1.4, '#111');
+  if (rv.stumT > 0) for (let i = 0; i < 3; i++) { const an = rv.stumT * 9 + i * 2.1; circ(hx + Math.cos(an) * 13, y - 22 + Math.sin(an) * 4, 2.2, '#ffcf3f'); }
+}
+function drawObj(o, y, t) {
+  const x = o.x;
+  switch (o.type) {
+    case 'orange': { const b = Math.sin(t * 6 + o.d) * 2; ell(x, y + 8, 7, 3, 'rgba(0,0,0,.2)'); circ(x, y - 2 + b, 9, '#ff8a1e'); circ(x - 3, y - 5 + b, 2.5, 'rgba(255,255,255,.55)'); ell(x + 3, y - 11 + b, 4, 2, '#4caf50'); break; }
+    case 'log': ell(x, y + 8, 30, 6, 'rgba(0,0,0,.22)'); rr(x - 30, y - 10, 60, 20, 9, '#7a4a24'); rr(x - 24, y - 6, 48, 3, 2, '#5f3819'); circ(x - 25, y, 9, '#c08a55'); circ(x - 25, y, 5, '#9a6a3f'); circ(x + 25, y, 9, '#c08a55'); circ(x + 25, y, 5, '#9a6a3f'); break;
+    case 'lily': ell(x, y + 8, 30, 6, 'rgba(0,0,0,.25)'); rr(x - 30, y - 10, 60, 20, 9, '#5b4a2a'); circ(x - 12, y - 4, 8, '#5fa04a'); circ(x + 14, y + 2, 7, '#6fb256'); circ(x + 14, y + 1, 2, '#ff9ad5'); break;
+    case 'rock': ell(x, y + 10, 22, 8, 'rgba(0,0,0,.25)'); ell(x, y + 2, 22, 18, '#6f7a73'); ell(x - 4, y - 3, 15, 12, '#8e9a91'); circ(x - 8, y - 7, 3, '#b5c0b8'); break;
+    case 'boulder': ell(x, y + 12, 23, 8, 'rgba(0,0,0,.35)'); circ(x, y, 22, '#3b2f2f'); circ(x - 5, y - 5, 14, '#4c3d3c');
+      g.strokeStyle = '#ff5a1f'; g.lineWidth = 2; g.beginPath(); g.moveTo(x - 10, y + 4); g.lineTo(x - 2, y - 2); g.lineTo(x + 6, y + 8); g.moveTo(x + 2, y - 12); g.lineTo(x + 10, y - 4); g.stroke(); break;
+    case 'mud': ell(x, y, 31, 34, '#5a3d22'); ell(x - 3, y - 2, 24, 26, '#664629'); circ(x + 8, y - 10, 3, '#7a5634'); circ(x - 10, y + 9, 2.5, '#7a5634'); break;
+    case 'sand': ell(x, y, 31, 34, '#c9964f'); g.strokeStyle = 'rgba(255,240,200,.55)'; g.lineWidth = 2;
+      for (let i = -1; i <= 1; i++) { g.beginPath(); g.arc(x, y + i * 12, 18, Math.PI * 1.1, Math.PI * 1.9); g.stroke(); } break;
+    case 'water': ell(x, y, 31, 36, '#2f5d6b'); g.strokeStyle = 'rgba(200,240,255,.35)'; g.lineWidth = 1.5;
+      for (let i = 0; i < 2; i++) { g.beginPath(); g.ellipse(x, y, 10 + ((t * 14 + i * 12) % 24), 6 + ((t * 9 + i * 8) % 14), 0, 0, TAU); g.stroke(); } break;
+    case 'ash': ell(x, y, 31, 34, '#5a504d'); ell(x + 4, y - 4, 20, 22, '#6a5f5b'); circ(x - 8, y + 6, 3, '#ff8a1e'); break;
+    case 'cactus': ell(x, y + 18, 17, 6, 'rgba(0,0,0,.22)'); rr(x - 7, y - 22, 14, 42, 7, '#3f9a4c'); rr(x - 18, y - 12, 8, 16, 4, '#3f9a4c'); rr(x - 18, y + 0, 14, 6, 3, '#3f9a4c');
+      rr(x + 10, y - 16, 8, 14, 4, '#3f9a4c'); rr(x + 4, y - 6, 14, 6, 3, '#3f9a4c'); rr(x - 2, y - 18, 3, 34, 2, 'rgba(255,255,255,.18)'); break;
+    case 'tumble': { ell(x, y + 12, 13, 4, 'rgba(0,0,0,.2)'); circ(x, y, 14, '#b88b4a'); g.strokeStyle = '#7d5a2b'; g.lineWidth = 1.6; const sp = t * (o.vx > 0 ? 6 : -6);
+      for (let i = 0; i < 5; i++) { g.beginPath(); g.arc(x, y, 6 + i * 1.6, sp + i, sp + i + 2.2); g.stroke(); } break; }
+    case 'snowman': ell(x, y + 20, 16, 5, 'rgba(40,70,100,.2)'); circ(x, y + 8, 15, '#f7fbff'); circ(x, y - 10, 11, '#ffffff'); circ(x - 4, y - 12, 1.6, '#222'); circ(x + 4, y - 12, 1.6, '#222');
+      g.fillStyle = '#ff8a1e'; g.beginPath(); g.moveTo(x, y - 9); g.lineTo(x + 9, y - 7); g.lineTo(x, y - 6); g.fill(); rr(x - 11, y - 3, 22, 4, 2, '#d9354a'); break;
+    case 'drift': ell(x, y + 4, 31, 12, '#b7cadb'); ell(x, y, 30, 11, '#ffffff'); ell(x - 8, y - 3, 12, 5, '#f2f7fc'); break;
+    case 'ice': rr(x - 31, y - 50, 62, 100, 14, 'rgba(170,225,255,.8)'); g.strokeStyle = 'rgba(255,255,255,.8)'; g.lineWidth = 2;
+      g.beginPath(); g.moveTo(x - 18, y + 20); g.lineTo(x - 4, y - 24); g.moveTo(x + 4, y + 30); g.lineTo(x + 16, y - 6); g.stroke(); break;
+    case 'croc': ell(x, y + 6, 17, 34, 'rgba(0,0,0,.25)'); rr(x - 14, y - 26, 28, 56, 12, '#3d6b3a'); rr(x - 9, y - 40, 18, 18, 6, '#457a41'); rr(x - 3, y + 26, 6, 16, 3, '#3d6b3a');
+      for (let i = -2; i <= 2; i++) rr(x - 3, y + i * 9, 6, 4, 2, '#2c5029'); circ(x - 6, y - 26, 3, '#e6ff7a'); circ(x + 6, y - 26, 3, '#e6ff7a'); circ(x - 6, y - 26, 1.3, '#111'); circ(x + 6, y - 26, 1.3, '#111'); break;
+    case 'lava': { const p = 0.6 + Math.sin(t * 5 + o.d) * 0.25; rr(x - 31, y - 12, 62, 24, 10, '#2a1410'); g.globalAlpha = p; rr(x - 26, y - 7, 52, 14, 7, '#ff5a1f'); rr(x - 18, y - 3, 30, 6, 3, '#ffcf3f'); g.globalAlpha = 1; break; }
+  }
+}
+function drawDeco(type, x, y, s) {
+  switch (type) {
+    case 'tree': circ(x + 3, y + 4, 15 * s, 'rgba(0,0,0,.25)'); circ(x, y, 15 * s, '#2f6b33'); circ(x - 5 * s, y - 4 * s, 9 * s, '#3f8a3e'); circ(x + 6 * s, y + 3 * s, 7 * s, '#357a37'); break;
+    case 'cactus': rr(x - 4 * s, y - 14 * s, 8 * s, 28 * s, 4 * s, '#4a9b4f'); rr(x - 10 * s, y - 6 * s, 5 * s, 10 * s, 2.5 * s, '#4a9b4f'); circ(x + 8 * s, y + 9 * s, 3 * s, '#a87b46'); break;
+    case 'pine': for (let i = 0; i < 3; i++) { g.fillStyle = i === 0 ? '#2e5a45' : '#3a6d55'; g.beginPath(); g.moveTo(x, y - (16 - i * 3) * s); g.lineTo(x - (12 - i * 2) * s, y + (6 + i * 4) * s); g.lineTo(x + (12 - i * 2) * s, y + (6 + i * 4) * s); g.fill(); }
+      g.fillStyle = '#ffffff'; g.beginPath(); g.moveTo(x, y - 16 * s); g.lineTo(x - 5 * s, y - 8 * s); g.lineTo(x + 5 * s, y - 8 * s); g.fill(); break;
+    case 'cypress': circ(x, y, 13 * s, '#1f3220'); circ(x - 4 * s, y - 3 * s, 8 * s, '#33502e'); ell(x + 5 * s, y + 12 * s, 9 * s, 3 * s, 'rgba(120,160,120,.35)'); break;
+    case 'basalt': g.fillStyle = '#3a2a27'; g.beginPath(); g.moveTo(x - 12 * s, y + 10 * s); g.lineTo(x - 4 * s, y - 12 * s); g.lineTo(x + 10 * s, y - 4 * s); g.lineTo(x + 12 * s, y + 10 * s); g.fill(); circ(x + 2 * s, y + 4 * s, 2.5 * s, '#ff5a1f'); break;
+  }
+}
+function checker(y) {
+  const sq = TW / 8;
+  for (let row = 0; row < 2; row++) for (let i = 0; i < 8; i++) { g.fillStyle = (i + row) % 2 ? '#1a1a1a' : '#fafafa'; g.fillRect(TX + i * sq, y + row * sq * 0.5, sq, sq * 0.5); }
+}
+function drawWorld() {
+  const r = race, B = r.B, p = r.p, cam = p.d, t = r.t;
+  const sh = reduceMotion ? 0 : r.shake * r.shake * 12;
+  g.save(); g.translate(rand(-0.5, 0.5) * sh, rand(-0.5, 0.5) * sh);
+  g.fillStyle = B.side; g.fillRect(-20, -20, W + 40, H + 40);
+  g.fillStyle = B.ground; g.fillRect(TX, -20, TW, H + 40);
+  g.fillStyle = B.edge; g.fillRect(TX - 4, -20, 4, H + 40); g.fillRect(TX + TW, -20, 4, H + 40);
+  const yOf = d => PY - (d - cam);
+  // ground texture, fixed to the world so it scrolls with speed
+  const k0 = Math.floor((cam - (H - PY) - 40) / 40), k1 = Math.ceil((cam + PY + 40) / 40);
+  g.fillStyle = B.tex;
+  for (let k = k0; k <= k1; k++) for (let j = 0; j < 2; j++) { const hx = hash(k * 3 + j); g.fillRect(TX + 6 + hx * (TW - 16), yOf(k * 40 + hash(k + j * 7) * 40), 6, 3); }
+  g.fillStyle = B.line;
+  const y0 = ((PY + cam) % 40 + 40) % 40;
+  for (let i = 1; i < LANES; i++) for (let y = y0 - 40; y < H + 40; y += 40) g.fillRect(TX + LW * i - 1.5, y, 3, 20);
+  // side decorations
+  const d0 = Math.floor((cam - (H - PY) - 80) / 55), d1 = Math.ceil((cam + PY + 80) / 55);
+  for (let k = d0; k <= d1; k++) {
+    const left = hash(k) < 0.5, hx = hash(k + 99), s = 0.8 + hash(k + 7) * 0.5;
+    drawDeco(B.deco, left ? 6 + hx * 26 : W - 6 - hx * 26, yOf(k * 55), s);
+  }
+  // start + finish lines
+  if (Math.abs(yOf(0) - H / 2) < H) checker(yOf(0));
+  const fy = yOf(r.L()); if (fy > -40 && fy < H + 40) checker(fy - 18);
+  // patches first (flat on the ground), then everything that stands up
+  for (const o of r.objs) { const y = yOf(o.d); if (y < -70 || y > H + 70 || o.gone) continue; if (o.k === 'slow' || o.k === 'boost') drawObj(o, y, t); }
+  for (const o of r.objs) { const y = yOf(o.d); if (y < -70 || y > H + 70 || o.gone) continue; if (o.k !== 'slow' && o.k !== 'boost') drawObj(o, y, t); }
+  for (const rv of r.rivals) { const y = yOf(rv.d); if (y > -110 && y < H + 40) drawSnake(rv, y); }
+  for (const q of r.parts) {
+    const a = Math.max(0, q.life / q.max);
+    if (q.ring) { g.strokeStyle = 'rgba(255,207,63,' + a + ')'; g.lineWidth = 3; g.beginPath(); g.arc(q.x, q.y, 12 + (1 - a) * 30, 0, TAU); g.stroke(); }
+    else { g.globalAlpha = a; circ(q.x, q.y, q.s, q.c); g.globalAlpha = 1; }
+  }
+  drawCapy(p.x, PY, p.run, p.jumpT, p.stumT, p.boostT > 0, p.slideT > 0);
+  for (const q of r.amb) {
+    if (q.type === 'firefly') { g.globalAlpha = 0.4 + Math.sin(q.t * 6) * 0.4; circ(q.x, q.y, q.s * 2.4, 'rgba(230,255,122,.25)'); circ(q.x, q.y, q.s, q.c); g.globalAlpha = 1; }
+    else if (q.type === 'sand') { g.fillStyle = q.c; g.fillRect(q.x, q.y, q.s, 1.5); }
+    else if (q.type === 'leaf') { g.save(); g.translate(q.x, q.y); g.rotate(q.t * 2); ell(0, 0, q.s, q.s * 0.5, q.c); g.restore(); }
+    else circ(q.x, q.y, q.s, q.c);
+  }
+  if (B.amb === 'ember') { const lg = g.createLinearGradient(0, H - 160, 0, H); lg.addColorStop(0, 'rgba(255,90,31,0)'); lg.addColorStop(1, 'rgba(255,90,31,.16)'); g.fillStyle = lg; g.fillRect(0, H - 160, W, 160); }
+  g.restore();
+}
+
+// ---------- drawing: HUD
+function drawHUD() {
+  const r = race, p = r.p, rank = p.fin != null ? r.place : 1 + r.rivals.filter(rv => rv.d > p.d).length;
+  const rc = ['#ffcf3f', '#d9e2e6', '#d48a4f', '#fff3dc'][rank - 1];
+  g.fillStyle = 'rgba(0,0,0,.32)'; g.beginPath(); g.roundRect(8, 8, 96, 50, 12); g.fill();
+  g.textAlign = 'left'; g.textBaseline = 'alphabetic';
+  g.fillStyle = rc; g.font = '30px "Bowlby One", "Arial Black", sans-serif'; g.fillText(rank, 16, 46);
+  const rw = g.measureText(String(rank)).width;
+  g.font = '13px "Bowlby One", "Arial Black", sans-serif'; g.fillText(['th', 'st', 'nd', 'rd'][rank] || 'th', 18 + rw, 30);
+  circ(76, 26, 6, '#ff8a1e'); ell(78, 20, 2.4, 1.2, '#4caf50');
+  g.fillStyle = '#fff3dc'; g.font = '600 13px Fredoka, sans-serif'; g.fillText('×' + r.oranges, 85, 30);
+  g.font = '600 11px Fredoka, sans-serif'; g.fillStyle = 'rgba(255,243,220,.75)'; g.fillText('of 4', 70, 48);
+  g.textAlign = 'center'; g.fillStyle = 'rgba(0,0,0,.32)'; g.beginPath(); g.roundRect(W / 2 - 44, 8, 88, 30, 10); g.fill();
+  g.fillStyle = '#fff3dc'; g.font = '16px "Bowlby One", "Arial Black", sans-serif'; g.fillText(fmt(Math.max(0, p.fin != null ? p.fin : r.t)), W / 2, 30);
+  g.font = '600 11px Fredoka, sans-serif'; g.fillStyle = 'rgba(255,243,220,.85)'; g.fillText(r.B.name.toUpperCase() + ' · ' + Math.max(0, Math.round((r.L() - p.d) / 10)) + ' m', W / 2, 52);
+  // progress strip: finish at the top
+  const sx = W - 14, top = 70, bot = H - 90;
+  g.fillStyle = 'rgba(0,0,0,.35)'; g.beginPath(); g.roundRect(sx - 4, top, 8, bot - top, 4); g.fill();
+  checkerMini(sx, top);
+  const py = d => bot - Math.min(1, Math.max(0, d / r.L())) * (bot - top);
+  for (const rv of r.rivals) circ(sx, py(rv.d), 5, rv.col);
+  circ(sx, py(p.d), 7, '#fff3dc'); circ(sx, py(p.d), 5, '#9a6a3f');
+  // snakes off the top of the screen: arrow + gap
+  for (const rv of r.rivals) {
+    const y = PY - (rv.d - p.d);
+    if (y < -20 && rv.d - p.d < 2500) {
+      g.fillStyle = rv.col; g.beginPath(); g.moveTo(rv.x, 66); g.lineTo(rv.x - 7, 78); g.lineTo(rv.x + 7, 78); g.fill();
+      g.font = '600 11px Fredoka, sans-serif'; g.fillStyle = '#fff3dc'; g.fillText('+' + Math.round((rv.d - p.d) / 10) + 'm', rv.x, 92);
+    }
+  }
+  // countdown
+  if (r.t < 0.7) {
+    const txt = r.t < 0 ? String(Math.ceil(-r.t)) : 'GO!';
+    const f = r.t < 0 ? 1 - (Math.ceil(-r.t) + r.t) : r.t / 0.7;
+    g.globalAlpha = 1 - f * 0.6; g.fillStyle = r.t < 0 ? '#fff3dc' : '#ffcf3f';
+    g.font = Math.round(72 + f * 24) + 'px "Bowlby One", "Arial Black", sans-serif';
+    g.lineWidth = 6; g.strokeStyle = 'rgba(42,26,14,.7)'; g.strokeText(txt, W / 2, H * 0.42); g.fillText(txt, W / 2, H * 0.42);
+    g.globalAlpha = 1;
+    if (r.t < 0) { g.font = '600 13px Fredoka, sans-serif'; g.fillStyle = '#fff3dc'; g.fillText('Swipe ← → to switch lanes · swipe ↑ to jump', W / 2, H * 0.42 + 40); }
+  }
+  if (p.fin != null) {
+    g.font = '40px "Bowlby One", "Arial Black", sans-serif'; g.fillStyle = rc; g.lineWidth = 6; g.strokeStyle = 'rgba(42,26,14,.7)';
+    const s = ord(r.place).toUpperCase() + '!'; g.strokeText(s, W / 2, H * 0.38); g.fillText(s, W / 2, H * 0.38);
+  }
+}
+function checkerMini(x, y) { for (let i = 0; i < 4; i++) { g.fillStyle = i % 2 ? '#111' : '#fff'; g.fillRect(x - 4 + (i % 2) * 4, y - 8 + Math.floor(i / 2) * 4, 4, 4); } }
+
+// ---------- screens
+function buildMenu() {
+  listEl.innerHTML = '';
+  BIOMES.forEach((B, i) => {
+    const locked = i >= save.unlocked, best = save.best[i];
+    const b = document.createElement('button'); b.type = 'button'; b.className = 'biome' + (i === menuBiome ? ' on' : ''); b.id = 'biome-' + i;
+    b.disabled = locked;
+    b.innerHTML = '<span class="sw" style="background:linear-gradient(135deg,' + B.ground + ' 50%,' + B.side + ' 50%)"></span>' +
+      '<span><b>' + B.name + '</b><small>' + (locked ? 'Finish 1st or 2nd in ' + BIOMES[i - 1].name + ' to open' : B.sub + ' · ' + B.len / 10 + ' m') + '</small></span>' +
+      (best ? '<span class="medal m' + best.place + '">' + ord(best.place) + ' ' + fmt(best.time) + '</span>' : locked ? '<span class="medal m4">Locked</span>' : '<span class="medal m4">Race</span>');
+    b.addEventListener('click', () => startRace(i));
+    b.addEventListener('pointerenter', () => { if (!locked) previewBiome(i); });
+    b.addEventListener('focus', () => { if (!locked) previewBiome(i); });
+    listEl.appendChild(b);
+  });
+  sndEl.textContent = save.sound ? 'Sound on' : 'Sound off';
+}
+function previewBiome(i) {
+  if (menuBiome === i && race && race.bi === i) return;
+  menuBiome = i; race = newRace(i, true);
+  for (const el of listEl.children) el.classList.toggle('on', el.id === 'biome-' + i);
+}
+sndEl.addEventListener('click', () => { save.sound = !save.sound; persist(); sndEl.textContent = save.sound ? 'Sound on' : 'Sound off'; });
+quitEl.addEventListener('click', e => { e.stopPropagation(); showMenu(); });
+function showMenu() {
+  screen = 'menu'; menuBiome = Math.min(menuBiome, save.unlocked - 1);
+  race = newRace(menuBiome, true); buildMenu();
+  menuEl.hidden = false; resEl.hidden = true; quitEl.hidden = true;
+}
+function startRace(i) {
+  if (i >= save.unlocked) return;
+  menuBiome = i; race = newRace(i, false); screen = 'race';
+  menuEl.hidden = true; resEl.hidden = true; quitEl.hidden = false;
+  if (document.activeElement && document.activeElement.blur) document.activeElement.blur();
+}
+function finishRace() {
+  const r = race;
+  if (r.demo) { // the menu backdrop keeps racing through the open biomes
+    const next = (r.bi + 1) % BIOMES.length; race = newRace(screen === 'menu' ? menuBiome : next, true); return;
+  }
+  if (screen !== 'race') return;
+  screen = 'results'; quitEl.hidden = true;
+  const place = r.place, time = r.p.fin, bi = r.bi;
+  const prev = save.best[bi];
+  const better = !prev || place < prev.place || (place === prev.place && time < prev.time);
+  if (better) save.best[bi] = { place, time: Math.round(time * 10) / 10 };
+  let unlockedNow = false;
+  if (place <= 2 && bi + 2 > save.unlocked && bi + 1 < BIOMES.length) { save.unlocked = bi + 2; unlockedNow = true; }
+  persist();
+  const racers = [{ name: 'You (capybara)', fin: r.p.fin, d: r.p.d, me: true }, ...r.rivals.map(rv => ({ name: rv.name, fin: rv.fin, d: rv.d }))]
+    .sort((a, b) => (a.fin == null) - (b.fin == null) || (a.fin != null ? a.fin - b.fin : b.d - a.d));
+  const msg = place === 1 ? 'You beat all three snakes.' : place === 2 ? 'Close. One snake got there first.' : 'The snakes won this one. Oranges make you faster.';
+  const nextOpen = bi + 1 < BIOMES.length && bi + 1 < save.unlocked;
+  resEl.innerHTML =
+    '<p class="place p' + place + '">' + ord(place) + '</p>' +
+    '<p class="note">' + msg + (unlockedNow ? ' <b>' + BIOMES[bi + 1].name + ' is open.</b>' : '') + (place === 1 && bi === BIOMES.length - 1 ? ' <b>Champion of all five biomes.</b>' : '') + '</p>' +
+    '<div class="stats"><span><b>' + fmt(time) + '</b>time</span><span><b>' + r.oranges + '</b>oranges</span><span><b>' + (better ? 'New' : fmt(prev.time)) + '</b>best</span></div>' +
+    '<ol class="order">' + racers.map((x, i) => '<li class="' + (x.me ? 'me' : '') + '"><span>' + (i + 1) + '. ' + x.name + '</span><span>' + (x.fin != null ? fmt(x.fin) : '—') + '</span></li>').join('') + '</ol>' +
+    '<div class="row">' + (nextOpen ? '<button class="btn" id="b-next" type="button">Next biome</button>' : '') +
+    '<button class="btn' + (nextOpen ? ' ghost' : '') + '" id="b-retry" type="button">Race again</button>' +
+    '<button class="btn ghost" id="b-menu" type="button">Biomes</button></div>';
+  resEl.hidden = false;
+  const on = (id, fn) => { const el = document.getElementById(id); if (el) el.addEventListener('click', fn); };
+  on('b-next', () => startRace(bi + 1)); on('b-retry', () => startRace(bi)); on('b-menu', showMenu);
+}
+
+// ---------- loop
+let last = performance.now(), frames = 0;
+function frame(now) {
+  const dt = Math.min(0.05, (now - last) / 1000); last = now; frames++;
+  if (race && screen !== 'results') update(dt);
+  if (race) { drawWorld(); if (!race.demo) drawHUD(); }
+  requestAnimationFrame(frame);
+}
+showMenu();
+requestAnimationFrame(frame);
+
+// test hooks: proof.py reads __proof; __sim fast-forwards a race with the autopilot driving
+window.__proof = () => ({ screen, biome: race && race.bi, t: race && +race.t.toFixed(2), place: race && race.place, d: race && Math.round(race.p.d), oranges: race && race.oranges,
+  lead: race && race.p.fin != null ? +(Math.min(...race.rivals.map(rv => rv.fin == null ? 1e9 : rv.fin)) - race.p.fin).toFixed(1) : null, unlocked: save.unlocked, frames });
+window.__sim = (bi, secs) => { startRace(bi); race.auto = true; const n = Math.round(secs * 60); for (let i = 0; i < n && screen === 'race'; i++) update(1 / 60); return window.__proof(); };
+})();
+</script>
+
+</html>
